@@ -58,8 +58,13 @@ http://localhost:5173
 
 ```bash
 # 1. docker运行项目
+初次构建运行： docker-compose up -d --build
+
+后续启动
 docker-compose up -d
 
+停止项目
+docker-compose down
 # 2. 运行项目
 npm run dev
 
