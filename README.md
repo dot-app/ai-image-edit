@@ -11,18 +11,17 @@
 对复杂图形有概率会修改到原图其他元素
 
 ## 🚀 快速使用指南
-> 💡 **AI 生成图片注意**：当前只支持nano-banana模型。
-
-### 三步开始
+> 💡 **AI 生成图片注意**：支持各种绘图模型，需要模型支持通用OpenAI API格式，编辑的话也是一样。
 
 ```
 1️⃣ 克隆仓库
-   打开编辑器 → Clone Repository → 输入本仓库地址
    git clone https://github.com/chunxiuxiamo/ai-image-edit.git
 
 ```
 
 ### 代表作品展示
+<img width="1920" height="919" alt="image" src="https://github.com/user-attachments/assets/ece324f0-573d-452e-a976-afdb326e8de4" />
+<img width="1920" height="1288" alt="image" src="https://github.com/user-attachments/assets/d245e284-741c-4036-a803-fa86ec185c06" />
 <img width="1824" height="640" alt="d3075cef64f2032c0caaf76b474a964a" src="https://github.com/user-attachments/assets/9ebf0442-00ec-49ae-bde9-14330b280b46" />
 <img width="1824" height="593" alt="af2a473247a552b48b5ddc290173e1c4" src="https://github.com/user-attachments/assets/9bc0b64f-de30-44a5-bd3c-ecbf74289265" />
 <img width="928" height="1232" alt="0ed9e4ca3805ccf611058a161287c46f" src="https://github.com/user-attachments/assets/8bbdaf84-a028-45ab-bc56-53cdca833a7b" />
@@ -38,6 +37,9 @@
 🎨 **图片局部编辑** - 画笔涂抹或框选局部区域，输入编辑指令进行局部修改，可以一次性框选多处同时修改
 
 ### 🚀 开始你的项目
+
+# 克隆仓库
+   git clone https://github.com/chunxiuxiamo/ai-image-edit.git
 
 #### 本地化开发（推荐）
 
@@ -56,22 +58,29 @@ http://localhost:5173
 
 ```bash
 # 1. docker运行项目
+初次构建运行： docker-compose up -d --build
+
+后续启动
 docker-compose up -d
+
+停止项目
+docker-compose down
 
 # 2. 运行项目
 npm run dev
 
 # 本地docker访问方式地址(服务器上需要自行修改nginx配置)
-http://localhost:8890 
+http://localhost:8890
+
 ```
 
 
 ## 常见问题
 
 <details>
-<summary><b>Q: 为什么选择gemini-3生图模型报错？</b></summary>
+<summary><b>Q: 为什么选择我的自定义生图模型报错？</b></summary>
 
-A: gemini-3参数格式有些不一样，暂时还没做兼容
+A: 当前需要模型支持OpenAI API通用参数格式
 
 </details>
 
