@@ -2,40 +2,31 @@ import React, { useRef, useState } from 'react';
 import { Download, Image as ImageIcon, ImageOff, Upload } from 'lucide-react';
 import { CanvasEditor } from './components/CanvasEditor';
 import { ControlPanel } from './components/ControlPanel';
+import { LayerPanel } from './components/LayerPanel';
 import { Layout } from './components/Layout';
 import { Button } from './components/ui/Button';
 import {
   editImage,
   editImageViaChatCompletions,
-  editImageViaGeminiOfficial,
   generateImage,
   generateImageViaChatCompletions,
-  generateImageViaGeminiOfficial,
   uploadFile,
 } from './lib/api';
+import { removeImageBackground } from './lib/backgroundRemoval';
 
 function App() {
-  const [imageUrl, setImageUrl] = useState(null);
-  const [imageBase64, setImageBase64] = useState(null);
-  const [imageMimeType, setImageMimeType] = useState('image/png');
-  const [imageRemoteUrl, setImageRemoteUrl] = useState(null);
+  // 图层管理
+  const [layers, setLayers] = useState([]);
+  const [selectedLayerId, setSelectedLayerId] = useState(null);
+  const nextLayerIdRef = useRef(1);
+
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
 
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('apiKey') || '');
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem('baseUrl') || 'https://foxi-ai.top');
-  const [modelName, setModelName] = useState(() => localStorage.getItem('modelName') || 'nano-banana-2-2k');
-
-  const [apiProvider, setApiProvider] = useState(
-    () => localStorage.getItem('apiProvider') || 'openai_compat'
-  );
-  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('geminiApiKey') || '');
-  const [geminiModelName, setGeminiModelName] = useState(
-    () => localStorage.getItem('geminiModelName') || 'gemini-2.5-flash-image'
-  );
-  const [geminiImageSize, setGeminiImageSize] = useState(
-    () => localStorage.getItem('geminiImageSize') || '1K'
-  );
+  const [modelName, setModelName] = useState(() => localStorage.getItem('modelName') || 'gemini-2.5-flash-image');
+  const [useGeminiNative, setUseGeminiNative] = useState(() => localStorage.getItem('useGeminiNative') === 'true');
 
   const [mode, setMode] = useState('generate'); // 'generate' | 'edit'
   const [isDrawing, setIsDrawing] = useState(false);
@@ -45,41 +36,142 @@ function App() {
   const [imageSize, setImageSize] = useState(() => localStorage.getItem('imageSize') || '1024x1024');
   const [aspectRatio, setAspectRatio] = useState(() => localStorage.getItem('aspectRatio') || '1:1');
 
+  // 抠图相关
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [removalProgress, setRemovalProgress] = useState(null);
+
   const canvasRef = useRef(null);
   const [regions, setRegions] = useState([]);
   const [regionInstructions, setRegionInstructions] = useState({});
 
-  const resetCurrentImage = () => {
-    setImageUrl(null);
-    setImageBase64(null);
-    setImageMimeType('image/png');
-    setImageRemoteUrl(null);
-    setMode('generate');
-    setIsDrawing(false);
-    setDrawMode('brush');
-    setRegions([]);
-    setRegionInstructions({});
-    canvasRef.current = null;
+  // 添加新图层
+  const addLayer = async (layerData) => {
+    // Parse base64 from data URL if needed
+    const mime = String(layerData.url).split(';')[0].split(':')[1] || 'image/png';
+    const base64 = String(layerData.url).split(',')[1];
+
+    // Get image dimensions
+    const img = new Image();
+    img.src = layerData.url;
+    await new Promise((resolve) => { img.onload = resolve; });
+
+    const newLayer = {
+      id: nextLayerIdRef.current++,
+      name: layerData.name || `图层 ${nextLayerIdRef.current - 1}`,
+      visible: true,
+      locked: false,
+      url: layerData.url,
+      base64,
+      mimeType: mime,
+      width: img.width,
+      height: img.height,
+      x: layers.length * 20,
+      y: layers.length * 20,
+      ...layerData,
+    };
+    setLayers(prev => [...prev, newLayer]);
+    setSelectedLayerId(newLayer.id);
+    return newLayer;
+  };
+
+  // 删除图层
+  const deleteLayer = (layerId) => {
+    setLayers(prev => prev.filter(l => l.id !== layerId));
+    if (selectedLayerId === layerId) {
+      setSelectedLayerId(null);
+    }
+  };
+
+  // 切换图层可见性
+  const toggleLayerVisibility = (layerId) => {
+    setLayers(prev => prev.map(l =>
+      l.id === layerId ? { ...l, visible: !l.visible } : l
+    ));
+  };
+
+  // 切换图层锁定
+  const toggleLayerLock = (layerId) => {
+    setLayers(prev => prev.map(l =>
+      l.id === layerId ? { ...l, locked: !l.locked } : l
+    ));
+  };
+
+  // 上移图层
+  const moveLayerUp = (layerId) => {
+    setLayers(prev => {
+      const index = prev.findIndex(l => l.id === layerId);
+      if (index <= 0) return prev;
+      const newLayers = [...prev];
+      [newLayers[index - 1], newLayers[index]] = [newLayers[index], newLayers[index - 1]];
+      return newLayers;
+    });
+  };
+
+  // 下移图层
+  const moveLayerDown = (layerId) => {
+    setLayers(prev => {
+      const index = prev.findIndex(l => l.id === layerId);
+      if (index < 0 || index >= prev.length - 1) return prev;
+      const newLayers = [...prev];
+      [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
+      return newLayers;
+    });
   };
 
   const isChatImageModel = (name) =>
-    name === 'gemini-3-pro-image-preview' || name === 'gemini-2.5-flash-image';
+    name === 'gemini-3-pro-image-preview';
 
-  const ensureCurrentImageRemoteUrl = async () => {
-    if (imageRemoteUrl) return imageRemoteUrl;
-    if (!imageBase64) return null;
+  // 抠图功能
+  const handleRemoveBackground = async (layerId) => {
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer || !layer.url) return;
 
-    const dataUrl = `data:${imageMimeType};base64,${imageBase64}`;
-    const uploaded = await uploadFile({
-      dataUrl,
-      apiKey,
-      baseUrl,
-      apiProvider,
-      geminiApiKey,
-      filename: 'image.png',
-    });
-    setImageRemoteUrl(uploaded.url);
-    return uploaded.url;
+    try {
+      setIsRemoving(true);
+      setRemovalProgress({ key: 'fetch:model', current: 0, total: 100 });
+
+      const resultDataUrl = await removeImageBackground(layer.url, (progress) => {
+        setRemovalProgress(progress);
+      });
+
+      // 解析结果
+      const mime = String(resultDataUrl).split(';')[0].split(':')[1] || 'image/png';
+      const base64 = String(resultDataUrl).split(',')[1];
+
+      // 创建新图层
+      addLayer({
+        url: resultDataUrl,
+        base64,
+        mimeType: mime,
+        width: layer.width,
+        height: layer.height,
+        x: layer.x + 20,
+        y: layer.y + 20,
+        name: `${layer.name} (抠图)`,
+      });
+
+      alert('抠图完成！新图层已添加到画布');
+    } catch (err) {
+      console.error('抠图失败:', err);
+      alert(`抠图失败: ${err.message}`);
+    } finally {
+      setIsRemoving(false);
+      setRemovalProgress(null);
+    }
+  };
+
+  // 下载图层
+  const downloadLayer = (layerId) => {
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer || !layer.url) return;
+
+    const a = document.createElement('a');
+    a.href = layer.url;
+    const ext = layer.mimeType === 'image/jpeg' ? 'jpg' : layer.mimeType === 'image/webp' ? 'webp' : 'png';
+    a.download = `${layer.name}_${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   React.useEffect(() => {
@@ -95,22 +187,6 @@ function App() {
   }, [modelName]);
 
   React.useEffect(() => {
-    localStorage.setItem('apiProvider', apiProvider);
-  }, [apiProvider]);
-
-  React.useEffect(() => {
-    localStorage.setItem('geminiApiKey', geminiApiKey);
-  }, [geminiApiKey]);
-
-  React.useEffect(() => {
-    localStorage.setItem('geminiModelName', geminiModelName);
-  }, [geminiModelName]);
-
-  React.useEffect(() => {
-    localStorage.setItem('geminiImageSize', geminiImageSize);
-  }, [geminiImageSize]);
-
-  React.useEffect(() => {
     localStorage.setItem('imageSize', imageSize);
   }, [imageSize]);
 
@@ -118,16 +194,17 @@ function App() {
     localStorage.setItem('aspectRatio', aspectRatio);
   }, [aspectRatio]);
 
+  React.useEffect(() => {
+    localStorage.setItem('useGeminiNative', useGeminiNative);
+  }, [useGeminiNative]);
+
   const handleFileUpload = async (e) => {
     const input = e.target;
     const file = input.files?.[0];
     if (!file) return;
 
     try {
-      // 允许重复选择同一个文件也能触发 onChange
       input.value = '';
-      // 避免异步加载竞态导致“新图不替换”
-      resetCurrentImage();
 
       const dataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -135,143 +212,116 @@ function App() {
         reader.onload = () => resolve(reader.result);
         reader.onerror = reject;
       });
+
       const mime = String(dataUrl).split(';')[0].split(':')[1] || 'image/png';
       const base64 = String(dataUrl).split(',')[1];
-      setImageMimeType(mime);
-      setImageBase64(base64);
-      setImageUrl(String(dataUrl));
-      setImageRemoteUrl(null);
+
+      // 获取图片尺寸
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise((resolve) => { img.onload = resolve; });
+
+      // 添加为新图层
+      addLayer({
+        url: dataUrl,
+        base64,
+        mimeType: mime,
+        width: img.width,
+        height: img.height,
+        x: 0,
+        y: 0,
+      });
+
       setMode('edit');
-      setDrawMode('brush');
-      setIsDrawing(true);
+      setDrawMode('select');
     } catch (err) {
       console.error('上传失败', err);
+      alert('上传失败: ' + err.message);
     }
-  };
-
-  const downloadCurrentImage = () => {
-    if (!imageUrl) return;
-    const a = document.createElement('a');
-    a.href = imageUrl;
-    const ext = imageMimeType === 'image/jpeg' ? 'jpg' : imageMimeType === 'image/webp' ? 'webp' : 'png';
-    a.download = `图片_${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
-
-  const buildMaskBase64 = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) throw new Error('画布未就绪');
-    const bgImage = canvas.backgroundImage;
-    if (!bgImage) throw new Error('未找到背景图片');
-
-    const objects = canvas.getObjects();
-
-    const originalBg = canvas.backgroundImage;
-    const originalBgColor = canvas.backgroundColor;
-    const originalStyles = objects.map((obj) => ({
-      obj,
-      fill: obj.fill,
-      stroke: obj.stroke,
-      strokeWidth: obj.strokeWidth,
-      opacity: obj.opacity,
-    }));
-
-    try {
-      canvas.discardActiveObject();
-      canvas.backgroundImage = null;
-      canvas.backgroundColor = 'black';
-      objects.forEach((obj) => {
-        if (obj.type === 'path' || obj.type === 'Path') {
-          obj.set({ stroke: 'white', opacity: 1 });
-        } else if (obj.type === 'rect') {
-          obj.set({ fill: 'white', stroke: 'white', opacity: 1 });
-        }
-      });
-
-      // 这里需要同步渲染，确保导出的 mask 与当前画面完全一致
-      canvas.renderAll();
-
-      // 不受视图缩放/平移影响：临时重置 viewportTransform，再按原图尺寸导出
-      const originalVpt = canvas.viewportTransform;
-      try {
-        canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-        const maskDataUrl = canvas.toDataURL({
-          format: 'png',
-          left: 0,
-          top: 0,
-          width: bgImage.width,
-          height: bgImage.height,
-          multiplier: 1,
-          enableRetinaScaling: false,
-        });
-        return maskDataUrl.split(',')[1];
-      } finally {
-        canvas.setViewportTransform(originalVpt);
-      }
-    } finally {
-      canvas.backgroundImage = originalBg;
-      canvas.backgroundColor = originalBgColor;
-      originalStyles.forEach(({ obj, fill, stroke, strokeWidth, opacity }) => {
-        obj.set({ fill, stroke, strokeWidth, opacity });
-      });
-      canvas.requestRenderAll();
-    }
-  };
-
-  const clearMaskObjects = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    canvas.getObjects().slice().forEach(obj => canvas.remove(obj));
-    canvas.requestRenderAll();
   };
 
   const handleGenerate = async () => {
-    if (apiProvider === 'gemini_official') {
-      if (!geminiApiKey) {
-        alert('请先在设置中填写 Gemini API Key');
-        return;
-      }
-    } else {
-      if (!apiKey) {
-        alert('请先在设置中填写 API Key');
-        return;
-      }
+    if (!prompt.trim()) {
+      alert('请输入提示词');
+      return;
     }
 
-    setIsGenerating(true);
     try {
-      if (mode === 'generate') {
-        if (apiProvider === 'gemini_official') {
-          const { mimeType, base64 } = await generateImageViaGeminiOfficial({
-            prompt,
-            apiKey: geminiApiKey,
-            model: geminiModelName,
-            aspectRatio,
-            imageSize: geminiImageSize,
-          });
-          setImageMimeType(mimeType || 'image/png');
-          setImageBase64(base64);
-          setImageUrl(`data:${mimeType || 'image/png'};base64,${base64}`);
-          setImageRemoteUrl(null);
-          setMode('edit');
-          setDrawMode('brush');
-          setIsDrawing(true);
-        } else if (isChatImageModel(modelName)) {
-          const { mimeType, base64 } = await generateImageViaChatCompletions({
+      setIsGenerating(true);
+      let resultDataUrl;
+
+      // 编辑模式：对选中的图层进行编辑
+      if (mode === 'edit') {
+        // 获取选中的图层
+        const selectedLayer = layers.find(l => l.id === selectedLayerId);
+        if (!selectedLayer) {
+          alert('请先选择要编辑的图层');
+          return;
+        }
+
+        // 获取图层的 dataUrl
+        const imageDataUrl = `data:${selectedLayer.mimeType};base64,${selectedLayer.base64}`;
+
+        // 检查是否有绘制的遮罩
+        const canvas = canvasRef.current;
+        const objects = canvas?.getObjects().filter(obj => !obj.layerId) || [];
+        const hasMask = objects.length > 0;
+
+        let maskDataUrl = null;
+        if (hasMask) {
+          // 有遮罩：构建遮罩 base64
+          try {
+            const maskBase64 = buildMaskBase64();
+            maskDataUrl = `data:image/png;base64,${maskBase64}`;
+          } catch (err) {
+            console.error('构建遮罩失败:', err);
+            alert(`构建遮罩失败: ${err.message}`);
+            return;
+          }
+        }
+
+        // 调用编辑 API（支持有遮罩或无遮罩）
+        if (isChatImageModel(modelName)) {
+          const result = await editImageViaChatCompletions({
+            imageDataUrl,
+            maskDataUrl, // 可以为 null
             prompt,
             apiKey,
             baseUrl,
             model: modelName,
           });
-          setImageMimeType(mimeType || 'image/png');
-          setImageBase64(base64);
-          setImageUrl(`data:${mimeType || 'image/png'};base64,${base64}`);
-          setImageRemoteUrl(null);
-          setMode('edit');
-          setDrawMode('brush');
-          setIsDrawing(true);
+          resultDataUrl = `data:${result.mimeType};base64,${result.base64}`;
+        } else {
+          if (!hasMask) {
+            alert('当前模型仅支持有遮罩的编辑，请先绘制遮罩区域');
+            return;
+          }
+          const result = await editImage({
+            imageBase64: selectedLayer.base64,
+            maskBase64: buildMaskBase64(),
+            prompt,
+            apiKey,
+            baseUrl,
+            model: modelName,
+            imageMimeType: selectedLayer.mimeType,
+          });
+          const firstImage = result?.data?.[0];
+          if (!firstImage?.b64_json) throw new Error('编辑失败：未返回图片数据');
+          resultDataUrl = `data:image/png;base64,${firstImage.b64_json}`;
+        }
+      } else {
+        // 生成模式：生成新图片
+        if (isChatImageModel(modelName)) {
+          const result = await generateImageViaChatCompletions({
+            prompt,
+            apiKey,
+            baseUrl,
+            model: modelName,
+            aspectRatio,
+            imageSize,
+            useGeminiNative,
+          });
+          resultDataUrl = `data:${result.mimeType};base64,${result.base64}`;
         } else {
           const result = await generateImage({
             prompt,
@@ -279,104 +329,193 @@ function App() {
             baseUrl,
             model: modelName,
             size: imageSize,
-            aspectRatio: aspectRatio,
-          });
-
-          let b64 = result.data?.[0]?.b64_json;
-          if (b64) {
-            if (b64.startsWith('data:image')) b64 = b64.split(',')[1];
-            setImageMimeType('image/png');
-            setImageBase64(b64);
-            setImageUrl(`data:image/png;base64,${b64}`);
-            setImageRemoteUrl(null);
-            setMode('edit');
-            setDrawMode('brush');
-            setIsDrawing(true);
-          }
-        }
-      } else {
-        if (!imageBase64) {
-          console.error('缺少图片数据');
-          return;
-        }
-
-        const maskBase64 = buildMaskBase64();
-
-        let resultImage = null;
-        if (apiProvider === 'gemini_official') {
-          const { mimeType, base64 } = await editImageViaGeminiOfficial({
-            imageBase64,
-            imageMimeType,
-            maskBase64,
-            prompt,
-            apiKey: geminiApiKey,
-            model: geminiModelName,
             aspectRatio,
-            imageSize: geminiImageSize,
+            useGeminiNative,
           });
-          setImageMimeType(mimeType || 'image/png');
-          setImageBase64(base64);
-          setImageUrl(`data:${mimeType || 'image/png'};base64,${base64}`);
-          setImageRemoteUrl(null);
-          clearMaskObjects();
-          return;
-        } else if (isChatImageModel(modelName)) {
-          // 关键：先把当前图片上传成 URL，再调用大模型（chat/completions）
-          const imageUrlForModel = await ensureCurrentImageRemoteUrl();
-          if (!imageUrlForModel) throw new Error('缺少图片数据');
-          const maskDataUrl = `data:image/png;base64,${maskBase64}`;
-          const { mimeType, base64 } = await editImageViaChatCompletions({
-            imageDataUrl: imageUrlForModel,
-            maskDataUrl,
-            prompt,
-            apiKey,
-            baseUrl,
-            model: modelName,
-          });
-          setImageMimeType(mimeType || 'image/png');
-          setImageBase64(base64);
-          setImageUrl(`data:${mimeType || 'image/png'};base64,${base64}`);
-          setImageRemoteUrl(null);
-          clearMaskObjects();
-          return;
-        } else {
-          resultImage = await editImage({
-            imageBase64,
-            maskBase64,
-            prompt,
-            apiKey,
-            baseUrl,
-            model: modelName,
-            imageMimeType,
-          });
-        }
-
-        if (resultImage) {
-          let b64 = resultImage;
-          if (b64.startsWith('data:image')) b64 = b64.split(',')[1];
-          setImageMimeType('image/png');
-          setImageBase64(b64);
-          setImageUrl(`data:image/png;base64,${b64}`);
-          setImageRemoteUrl(null);
-          clearMaskObjects();
+          const firstImage = result?.data?.[0];
+          if (!firstImage?.b64_json) throw new Error('生成失败：未返回图片数据');
+          resultDataUrl = `data:image/png;base64,${firstImage.b64_json}`;
         }
       }
+
+      const mime = String(resultDataUrl).split(';')[0].split(':')[1] || 'image/png';
+      const base64 = String(resultDataUrl).split(',')[1];
+
+      // 获取图片尺寸
+      const img = new Image();
+      img.src = resultDataUrl;
+      await new Promise((resolve) => { img.onload = resolve; });
+
+      if (mode === 'edit') {
+        // 编辑模式：替换选中的图层
+        setLayers(prev => prev.map(layer =>
+          layer.id === selectedLayerId
+            ? { ...layer, url: resultDataUrl, base64, mimeType: mime, width: img.width, height: img.height }
+            : layer
+        ));
+
+        // 清除画布上的遮罩绘制
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const objects = canvas.getObjects().filter(obj => !obj.layerId);
+          objects.forEach(obj => canvas.remove(obj));
+          canvas.requestRenderAll();
+        }
+      } else {
+        // 生成模式：添加为新图层
+        addLayer({
+          url: resultDataUrl,
+          base64,
+          mimeType: mime,
+          width: img.width,
+          height: img.height,
+          x: layers.length * 20,
+          y: layers.length * 20,
+          name: `生成图片 ${layers.length + 1}`,
+        });
+
+        setMode('edit');
+      }
     } catch (err) {
-      console.error(err);
-      alert(`出错：${err.message}`);
+      console.error(mode === 'edit' ? '编辑失败:' : '生成失败:', err);
+      alert(`${mode === 'edit' ? '编辑' : '生成'}失败: ${err.message}`);
     } finally {
       setIsGenerating(false);
     }
   };
 
+  const buildMaskBase64 = (previewMode = false) => {
+    const canvas = canvasRef.current;
+    if (!canvas) throw new Error('画布未就绪');
+
+    // 获取选中图层的原始尺寸
+    const selectedLayer = layers.find(l => l.id === selectedLayerId);
+    if (!selectedLayer) throw new Error('请先选择要编辑的图层');
+
+    const imgWidth = selectedLayer.width;
+    const imgHeight = selectedLayer.height;
+
+    // 获取所有绘制对象（不包括图层）
+    const objects = canvas.getObjects().filter(obj => !obj.layerId);
+    if (objects.length === 0) throw new Error('请先绘制遮罩区域');
+
+    // 获取选中图层的 Fabric 对象，用于计算相对坐标
+    const layerObj = canvas.getObjects().find(obj => obj.layerId === selectedLayerId);
+    if (!layerObj) throw new Error('未找到选中的图层对象');
+
+    const layerLeft = layerObj.left;
+    const layerTop = layerObj.top;
+
+    // 创建一个新的离屏 canvas，尺寸与原图一致
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = imgWidth;
+    maskCanvas.height = imgHeight;
+    const ctx = maskCanvas.getContext('2d');
+
+    // 填充黑色背景
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, imgWidth, imgHeight);
+
+    const expandRatio = 0.01; // 1% 扩张
+
+    // 绘制白色遮罩区域
+    ctx.fillStyle = 'white';
+    objects.forEach((obj) => {
+      if (obj.type === 'rect') {
+        const bounds = obj.getBoundingRect();
+
+        // 转换为相对于图层的坐标
+        const relativeX = bounds.left - layerLeft;
+        const relativeY = bounds.top - layerTop;
+
+        // 计算 1% 扩张
+        const expansion = Math.max(bounds.width, bounds.height) * expandRatio;
+
+        const x = Math.max(0, relativeX - expansion);
+        const y = Math.max(0, relativeY - expansion);
+        const w = Math.min(imgWidth - x, bounds.width + expansion * 2);
+        const h = Math.min(imgHeight - y, bounds.height + expansion * 2);
+
+        ctx.fillRect(x, y, w, h);
+      } else if (obj.type === 'path') {
+        // 对于路径，需要转换坐标并绘制
+        const path = obj.path;
+        if (!path) return;
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = obj.strokeWidth || 30;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        path.forEach((cmd, i) => {
+          const type = cmd[0];
+          if (type === 'M') {
+            const x = cmd[1] - layerLeft;
+            const y = cmd[2] - layerTop;
+            ctx.moveTo(x, y);
+          } else if (type === 'L') {
+            const x = cmd[1] - layerLeft;
+            const y = cmd[2] - layerTop;
+            ctx.lineTo(x, y);
+          } else if (type === 'Q') {
+            const cpX = cmd[1] - layerLeft;
+            const cpY = cmd[2] - layerTop;
+            const endX = cmd[3] - layerLeft;
+            const endY = cmd[4] - layerTop;
+            ctx.quadraticCurveTo(cpX, cpY, endX, endY);
+          }
+        });
+        ctx.stroke();
+      }
+    });
+
+    const dataUrl = maskCanvas.toDataURL('image/png');
+    const base64 = dataUrl.split(',')[1];
+
+    // 如果是预览模式，将遮罩添加为新图层
+    if (previewMode) {
+      addLayer({
+        url: dataUrl,
+        base64,
+        mimeType: 'image/png',
+        width: imgWidth,
+        height: imgHeight,
+        x: 0,
+        y: 0,
+        name: '遮罩预览',
+      });
+    }
+
+    return base64;
+  };
+
+  const handlePreviewMask = () => {
+    try {
+      buildMaskBase64(true); // 传入 true 启用预览模式
+    } catch (err) {
+      console.error('预览遮罩失败:', err);
+      throw err;
+    }
+  };
+
   return (
     <Layout
-      sidebar={
-        <div className="flex flex-col gap-4">
+      toolbar={
+        <div className="flex flex-col gap-3 items-center">
+          {/* Upload Button - macOS style with spring interaction */}
           <div className="relative group">
-            <Button variant="ghost" size="icon" className="rounded-full w-12 h-12 bg-white shadow-sm">
-              <Upload size={20} />
-            </Button>
+            <button
+              className="w-12 h-12 rounded-[10px] flex items-center justify-center
+                         bg-white/90 dark:bg-white/10
+                         shadow-[0_0_0_0.5px_rgba(0,0,0,0.1),0_2px_8px_rgba(0,0,0,0.08)]
+                         hover:shadow-[0_0_0_0.5px_rgba(0,0,0,0.15),0_4px_12px_rgba(0,0,0,0.12)]
+                         active:scale-[0.96]
+                         transition-all duration-200 ease-out
+                         border border-black/[0.05] dark:border-white/10"
+            >
+              <Upload size={20} className="text-gray-700 dark:text-gray-300" strokeWidth={1.5} />
+            </button>
             <input
               type="file"
               className="absolute inset-0 opacity-0 cursor-pointer"
@@ -384,40 +523,23 @@ function App() {
               accept="image/*"
             />
           </div>
-
-          {imageUrl && (
-            <>
-              <div className="w-8 h-px bg-gray-300" />
-              <Button
-                variant={isDrawing ? 'primary' : 'ghost'}
-                size="icon"
-                className="rounded-full w-12 h-12"
-                onClick={() => setIsDrawing(!isDrawing)}
-                title="启用/暂停绘制"
-              >
-                <ImageIcon size={20} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full w-12 h-12"
-                onClick={downloadCurrentImage}
-                title="下载当前图片"
-              >
-                <Download size={20} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full w-12 h-12 text-red-500 hover:bg-red-50"
-                onClick={resetCurrentImage}
-                title="移除当前图片（重置）"
-              >
-                <ImageOff size={20} />
-              </Button>
-            </>
-          )}
         </div>
+      }
+      layerPanel={
+        <LayerPanel
+          layers={layers}
+          selectedLayerId={selectedLayerId}
+          onSelectLayer={setSelectedLayerId}
+          onDeleteLayer={deleteLayer}
+          onToggleVisibility={toggleLayerVisibility}
+          onToggleLock={toggleLayerLock}
+          onMoveLayerUp={moveLayerUp}
+          onMoveLayerDown={moveLayerDown}
+          onRemoveBackground={handleRemoveBackground}
+          onDownloadLayer={downloadLayer}
+          isRemoving={isRemoving}
+          removalProgress={removalProgress}
+        />
       }
       properties={
         <ControlPanel
@@ -425,20 +547,14 @@ function App() {
           setPrompt={setPrompt}
           onGenerate={handleGenerate}
           isGenerating={isGenerating}
-          apiProvider={apiProvider}
-          setApiProvider={setApiProvider}
           apiKey={apiKey}
           setApiKey={setApiKey}
           baseUrl={baseUrl}
           setBaseUrl={setBaseUrl}
           modelName={modelName}
           setModelName={setModelName}
-          geminiApiKey={geminiApiKey}
-          setGeminiApiKey={setGeminiApiKey}
-          geminiModelName={geminiModelName}
-          setGeminiModelName={setGeminiModelName}
-          geminiImageSize={geminiImageSize}
-          setGeminiImageSize={setGeminiImageSize}
+          useGeminiNative={useGeminiNative}
+          setUseGeminiNative={setUseGeminiNative}
           mode={mode}
           setMode={setMode}
           imageSize={imageSize}
@@ -460,42 +576,46 @@ function App() {
             canvas.setActiveObject(rect);
             canvas.requestRenderAll();
           }}
+          onPreviewMask={handlePreviewMask}
         />
       }
     >
       <div className="flex-1 w-full h-full p-4">
-        {imageUrl ? (
-          <CanvasEditor
-            imageUrl={imageUrl}
-            isDrawing={isDrawing}
-            setIsDrawing={setIsDrawing}
-            drawMode={drawMode}
-            setDrawMode={setDrawMode}
-            brushSize={brushSize}
-            setBrushSize={setBrushSize}
-            onRegionsChange={(next) => {
-              setRegions(next);
-              setRegionInstructions((prev) => {
-                const keep = new Set(next.map((r) => r.id));
-                const nextMap = {};
-                Object.keys(prev).forEach((k) => {
-                  const id = Number(k);
-                  if (keep.has(id)) nextMap[id] = prev[id];
-                });
-                return nextMap;
+        <CanvasEditor
+          layers={layers}
+          onLayersChange={(layerData) => {
+            setLayers(prev => prev.map(layer => {
+              const updated = layerData.find(d => d.id === layer.id);
+              return updated ? { ...layer, ...updated } : layer;
+            }));
+          }}
+          isDrawing={isDrawing}
+          setIsDrawing={setIsDrawing}
+          drawMode={drawMode}
+          setDrawMode={setDrawMode}
+          brushSize={brushSize}
+          setBrushSize={setBrushSize}
+          onRegionsChange={(next) => {
+            setRegions(next);
+            setRegionInstructions((prev) => {
+              const keep = new Set(next.map((r) => r.id));
+              const nextMap = {};
+              Object.keys(prev).forEach((k) => {
+                const id = Number(k);
+                if (keep.has(id)) nextMap[id] = prev[id];
               });
-            }}
-            onCanvasReady={(canvas) => {
-              canvasRef.current = canvas;
-            }}
-          />
-        ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-ios-lg">
-            <ImageIcon size={48} className="mb-4 opacity-50" />
-            <p className="text-lg font-medium">暂无图片</p>
-            <p className="text-sm">上传图片或先生成一张图片开始编辑</p>
-          </div>
-        )}
+              return nextMap;
+            });
+          }}
+          onCanvasReady={(canvas) => {
+            canvasRef.current = canvas;
+          }}
+          onRemoveBackground={handleRemoveBackground}
+          selectedLayerId={selectedLayerId}
+          onSelectLayer={setSelectedLayerId}
+          onDeleteLayer={deleteLayer}
+          onAddLayer={addLayer}
+        />
       </div>
     </Layout>
   );
