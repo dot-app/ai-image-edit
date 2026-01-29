@@ -281,7 +281,7 @@ function App() {
         }
 
         // 调用编辑 API（支持有遮罩或无遮罩）
-        if (isChatImageModel(modelName)) {
+        if (useGeminiNative || isChatImageModel(modelName)) {
           const result = await editImageViaChatCompletions({
             imageDataUrl,
             maskDataUrl, // 可以为 null
@@ -289,6 +289,8 @@ function App() {
             apiKey,
             baseUrl,
             model: modelName,
+            useGeminiNative,
+            aspectRatio,
           });
           resultDataUrl = `data:${result.mimeType};base64,${result.base64}`;
         } else {

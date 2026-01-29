@@ -261,10 +261,9 @@ export async function generateImage({ prompt, aspectRatio = '1:1', apiKey, baseU
                     }
                 ],
                 generationConfig: {
-                    responseModalities: ["image"],
+                    responseModalities: ['IMAGE'],
                     imageConfig: {
-                        aspectRatio: aspectRatio,
-                        imageSize: size
+                        aspectRatio: aspectRatio
                     }
                 }
             })
@@ -359,10 +358,9 @@ export async function generateImageViaChatCompletions({ prompt, apiKey, baseUrl,
                     }
                 ],
                 generationConfig: {
-                    responseModalities: ["image"],
+                    responseModalities: ['IMAGE'],
                     imageConfig: {
-                        aspectRatio: aspectRatio,
-                        imageSize: "800:800"
+                        aspectRatio: aspectRatio
                     }
                 }
             })
@@ -438,15 +436,10 @@ export async function generateImageViaChatCompletions({ prompt, apiKey, baseUrl,
     }
 }
 
-export async function editImageViaChatCompletions({ imageDataUrl, maskDataUrl, prompt, apiKey, baseUrl, model }) {
-    const url = `${baseUrl || API_CONFIG.baseUrl}/v1/chat/completions`;
-
-    // 根据是否有遮罩，构建不同的指令和内容
+export async function editImageViaChatCompletions({ imageDataUrl, maskDataUrl, prompt, apiKey, baseUrl, model, useGeminiNative = false, aspectRatio = '1:1' }) {
+    // 根据是否有遮罩，构建不同的指令
     let instruction;
-    let content;
-
     if (maskDataUrl) {
-        // 有遮罩：使用遮罩编辑指令，直接发送 base64 数据
         instruction =
             `你将收到两张图片：第一张为原图，第二张为遮罩。\n` +
             `编辑规则（必须严格遵守）：\n` +
@@ -456,59 +449,99 @@ export async function editImageViaChatCompletions({ imageDataUrl, maskDataUrl, p
             `4) 如果指令与"仅修改白色区域/黑色区域完全不变"冲突，优先保证黑色区域不变。\n` +
             `编辑要求：\n${prompt}\n` +
             `仅输出一张编辑后的图片，不要输出任何解释文字。`;
-
-        content = [
-            { type: 'text', text: instruction },
-            { type: 'image_url', image_url: { url: imageDataUrl } },
-            { type: 'image_url', image_url: { url: maskDataUrl } },
-        ];
     } else {
-        // 无遮罩：直接对整张图片进行编辑，直接发送 base64 数据
         instruction =
             `你将收到一张图片。请根据以下要求对图片进行修改：\n` +
             `${prompt}\n` +
             `仅输出一张编辑后的图片，不要输出任何解释文字。`;
+    }
 
-        content = [
+    if (useGeminiNative) {
+        // Gemini Native API format
+        const url = `${baseUrl || API_CONFIG.baseUrl}/v1beta/models/${model}:generateContent`;
+
+        // 解析 dataUrl 为 base64（使用 snake_case: inline_data, mime_type）
+        const parseInlineData = (dataUrl) => {
+            const parsed = parseDataUrl(dataUrl);
+            if (!parsed) throw new Error('无效的图片数据');
+            return { inline_data: { mime_type: parsed.mimeType, data: parsed.base64 } };
+        };
+
+        // 图片在前，文字在后
+        const parts = [
+            parseInlineData(imageDataUrl),
+        ];
+        if (maskDataUrl) {
+            parts.push(parseInlineData(maskDataUrl));
+        }
+        parts.push({ text: instruction });
+
+        const response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey || API_CONFIG.apiKey}`
+            },
+            body: JSON.stringify({
+                contents: [{ parts }],
+                generationConfig: {
+                    responseModalities: ['TEXT', 'IMAGE'],
+                    imageConfig: {
+                        aspectRatio: aspectRatio
+                    }
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error?.message || '编辑失败');
+        }
+
+        const data = await response.json();
+        const extracted = extractBase64ImageFromGeminiNative(data);
+        if (!extracted) throw new Error('编辑失败：未从响应中解析到图片数据');
+        return extracted;
+    } else {
+        // OpenAI format
+        const url = `${baseUrl || API_CONFIG.baseUrl}/v1/chat/completions`;
+
+        const content = [
             { type: 'text', text: instruction },
             { type: 'image_url', image_url: { url: imageDataUrl } },
         ];
+        if (maskDataUrl) {
+            content.push({ type: 'image_url', image_url: { url: maskDataUrl } });
+        }
+
+        const response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey || API_CONFIG.apiKey}`
+            },
+            body: JSON.stringify({
+                model,
+                stream: false,
+                messages: [{ role: 'user', content }]
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error?.message || '编辑失败');
+        }
+
+        const data = await response.json();
+        const extracted = extractBase64ImageFromChat(data);
+        if (!extracted) throw new Error('编辑失败：未从响应中解析到图片数据');
+
+        if (extracted.url && !extracted.base64) {
+            const fetched = await fetchImageAsBase64(extracted.url);
+            return fetched;
+        }
+        return extracted;
     }
-
-    const response = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey || API_CONFIG.apiKey}`
-        },
-        body: JSON.stringify({
-            model,
-            stream: false,
-            messages: [
-                {
-                    role: 'user',
-                    content: content
-                }
-            ]
-        })
-    });
-
-    if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error?.message || '编辑失败');
-    }
-
-    const data = await response.json();
-    const extracted = extractBase64ImageFromChat(data);
-    if (!extracted) throw new Error('编辑失败：未从响应中解析到图片数据');
-
-    // 如果返回的是外部 URL，需要下载并转换为 base64
-    if (extracted.url && !extracted.base64) {
-        const fetched = await fetchImageAsBase64(extracted.url);
-        return fetched; // { mimeType, base64 }
-    }
-
-    return extracted; // { mimeType, base64 }
 }
 
 /**
