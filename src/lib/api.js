@@ -436,8 +436,13 @@ export async function generateImageViaChatCompletions({ prompt, apiKey, baseUrl,
     }
 }
 
-export async function editImageViaChatCompletions({ imageDataUrl, maskDataUrl, prompt, apiKey, baseUrl, model, useGeminiNative = false, aspectRatio = '1:1' }) {
+export async function editImageViaChatCompletions({ imageDataUrl, maskDataUrl, prompt, apiKey, baseUrl, model, useGeminiNative = false, aspectRatio = '1:1', originalWidth, originalHeight }) {
     // 根据是否有遮罩，构建不同的指令
+    // 如果提供了原图尺寸，在指令中明确要求保持尺寸
+    const sizeInstruction = (originalWidth && originalHeight)
+        ? `输出图片必须保持原图尺寸 ${originalWidth}x${originalHeight} 像素。`
+        : '';
+
     let instruction;
     if (maskDataUrl) {
         instruction =
@@ -447,13 +452,23 @@ export async function editImageViaChatCompletions({ imageDataUrl, maskDataUrl, p
             `2) 不要改动黑色区域的任何内容：包括但不限于构图、背景、人物/物体位置、轮廓、大小、颜色、光照、阴影、清晰度、对比度、风格、文字水印等。\n` +
             `3) 白色区域的边缘要自然融合，避免溢出到黑色区域；不要产生新的改动区域或额外元素。\n` +
             `4) 如果指令与"仅修改白色区域/黑色区域完全不变"冲突，优先保证黑色区域不变。\n` +
+            (sizeInstruction ? `5) ${sizeInstruction}\n` : '') +
             `编辑要求：\n${prompt}\n` +
             `仅输出一张编辑后的图片，不要输出任何解释文字。`;
     } else {
         instruction =
             `你将收到一张图片。请根据以下要求对图片进行修改：\n` +
             `${prompt}\n` +
+            (sizeInstruction ? `${sizeInstruction}\n` : '') +
             `仅输出一张编辑后的图片，不要输出任何解释文字。`;
+    }
+
+    // 根据原图尺寸计算 aspectRatio（如果提供了原图尺寸）
+    let effectiveAspectRatio = aspectRatio;
+    if (originalWidth && originalHeight) {
+        const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+        const divisor = gcd(originalWidth, originalHeight);
+        effectiveAspectRatio = `${originalWidth / divisor}:${originalHeight / divisor}`;
     }
 
     if (useGeminiNative) {
@@ -487,7 +502,7 @@ export async function editImageViaChatCompletions({ imageDataUrl, maskDataUrl, p
                 generationConfig: {
                     responseModalities: ['TEXT', 'IMAGE'],
                     imageConfig: {
-                        aspectRatio: aspectRatio
+                        aspectRatio: effectiveAspectRatio
                     }
                 }
             })

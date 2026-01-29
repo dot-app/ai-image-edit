@@ -24,6 +24,7 @@ dist-ssr
 *.sln
 *.sw?
 
-.cloud
+.claude
 CLAUDE.md
 package-lock.json
+.ace-tool/

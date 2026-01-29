@@ -1,0 +1,61 @@
+/**
+ * Base styles for AI Image Editor
+ * This file is compiled from Tailwind and injected into Shadow DOM
+ */
+
+/* Import only utilities, skip preflight/base reset to avoid global pollution */
+@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/utilities" layer(utilities);
+
+@theme {
+  --color-ios-gray: #F2F2F7;
+  --color-cool-gray: #F9F9FB;
+  --color-deep-black: #1C1C1E;
+
+  --shadow-soft-spread: 0 24px 48px -12px rgba(0, 0, 0, 0.08);
+  --shadow-inner-cut: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+
+  --backdrop-blur-glass-40: 40px;
+  --backdrop-blur-glass-60: 60px;
+
+  --radius-ios-lg: 40px;
+  --radius-ios-md: 28px;
+  --radius-ios-sm: 12px;
+}
+
+/* Scoped to editor app to prevent global pollution */
+.ai-editor-app {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Modal backdrop */
+.ai-editor-modal-backdrop {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Reset for shadow DOM */
+:host {
+  all: initial;
+  display: contents;
+}
+
+/* Scrollbar styling */
+.ai-editor-app ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.ai-editor-app ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ai-editor-app ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.ai-editor-app ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}

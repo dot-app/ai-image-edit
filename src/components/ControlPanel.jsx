@@ -27,6 +27,7 @@ export function ControlPanel({
     setRegionInstruction,
     focusRegion,
     onPreviewMask,
+    disableSettings = false,
 }) {
     const [showSettings, setShowSettings] = React.useState(false);
     const [copyHint, setCopyHint] = React.useState('');
@@ -182,12 +183,14 @@ export function ControlPanel({
         <div className="flex flex-col h-full gap-6 p-4">
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold tracking-tight text-slate-900">控制面板</h2>
-                <Button variant="ghost" size="icon" onClick={() => setShowSettings(!showSettings)}>
-                    <Settings size={20} />
-                </Button>
+                {!disableSettings && (
+                    <Button variant="ghost" size="icon" onClick={() => setShowSettings(!showSettings)}>
+                        <Settings size={20} />
+                    </Button>
+                )}
             </div>
 
-            {showSettings && (
+            {showSettings && !disableSettings && (
                 <div className="flex flex-col gap-4 p-4 bg-white/50 rounded-ios-md border border-white/60 shadow-sm animate-in fade-in slide-in-from-top-2">
                     <div className="space-y-2">
                         <label className="text-xs font-bold uppercase tracking-widest text-slate-500">API Key</label>

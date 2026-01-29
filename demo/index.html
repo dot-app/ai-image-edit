@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Image Editor - Demo</title>
+  <style>
+    /* Demo page specific styles (override Tailwind body reset) */
+    body.demo-page {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      margin: 0 !important;
+      padding: 40px !important;
+      background: #f5f5f7 !important;
+      min-height: 100vh !important;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 40px;
+      background: #f5f5f7;
+      min-height: 100vh;
+    }
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 32px;
+      font-weight: 600;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 32px;
+    }
+    .config-section {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      margin-bottom: 32px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .config-section h2 {
+      margin: 0 0 16px 0;
+      font-size: 18px;
+    }
+    .config-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .config-row label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+    .config-row input,
+    .config-row select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      background: white;
+    }
+    .image-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 24px;
+    }
+    .image-card {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .image-card img {
+      width: 100%;
+      height: 200px;
+      object-fit: cover;
+      display: block;
+    }
+    .image-card .info {
+      padding: 16px;
+    }
+    .image-card .title {
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+    .image-card .desc {
+      color: #666;
+      font-size: 14px;
+    }
+    .manual-btn {
+      margin-top: 12px;
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .manual-btn:hover {
+      opacity: 0.9;
+    }
+    .result-section {
+      margin-top: 32px;
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      display: none;
+    }
+    .result-section.show {
+      display: block;
+    }
+    .result-section h2 {
+      margin: 0 0 16px 0;
+    }
+    .result-image {
+      max-width: 400px;
+      border-radius: 8px;
+    }
+    .result-info {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #666;
+    }
+  </style>
+  <!-- No CSS import needed - styles are isolated in iframe -->
+</head>
+<body class="demo-page">
+  <h1>AI Image Editor Demo</h1>
+  <p class="subtitle">Hover over images to see the AI Edit button, or use manual trigger</p>
+  <p class="subtitle" style="color: #999; font-size: 12px;">Using iframe-based library from /dist (CSS isolated)</p>
+
+  <div class="config-section">
+    <h2>API Configuration</h2>
+    <div class="config-row">
+      <label>
+        API Key
+        <input type="password" id="apiKey" value="" placeholder="Enter your API key">
+      </label>
+      <label>
+        Base URL
+        <input type="text" id="baseUrl" value="https://yunwu.ai" placeholder="API base URL">
+      </label>
+      <label>
+        Model Name
+        <input type="text" id="modelName" value="gemini-2.5-flash-image" placeholder="Model name">
+      </label>
+      <label>
+        API Format
+        <select id="apiFormat">
+          <option value="gemini" selected>Gemini Native</option>
+          <option value="openai">OpenAI Compatible</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div class="image-grid">
+    <div class="image-card">
+      <img
+        src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600"
+        alt="Mountain landscape"
+        crossorigin="anonymous"
+      >
+      <div class="info">
+        <div class="title">Mountain Landscape</div>
+        <div class="desc">Hover to see AI Edit button</div>
+      </div>
+    </div>
+
+    <div class="image-card">
+      <img
+        src="https://images.unsplash.com/photo-1682687220742-aba13b6e50ba?w=600"
+        alt="Ocean sunset"
+        crossorigin="anonymous"
+      >
+      <div class="info">
+        <div class="title">Ocean Sunset</div>
+        <div class="desc">Hover to see AI Edit button</div>
+      </div>
+    </div>
+
+    <div class="image-card">
+      <img
+        src="https://images.unsplash.com/photo-1519681393784-d120267933ba?w=600"
+        alt="Starry night"
+        crossorigin="anonymous"
+        data-ai-ignore
+      >
+      <div class="info">
+        <div class="title">Starry Night (Ignored)</div>
+        <div class="desc">Has data-ai-ignore attribute</div>
+      </div>
+    </div>
+
+    <div class="image-card">
+      <img
+        id="manual-image"
+        src="https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=600"
+        alt="Forest path"
+        crossorigin="anonymous"
+        data-ai-ignore
+      >
+      <div class="info">
+        <div class="title">Forest Path (Manual)</div>
+        <div class="desc">Click button to edit manually</div>
+        <button class="manual-btn" id="manual-edit-btn">Open Editor</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="result-section" id="result-section">
+    <h2>Last Edit Result</h2>
+    <img class="result-image" id="result-image" src="" alt="Result">
+    <div class="result-info" id="result-info"></div>
+  </div>
+
+  <!-- Load the built library (UMD - React bundled in) -->
+  <script src="../dist/ai-image-editor.umd.js"></script>
+
+  <script>
+    // Get the library from global scope (UMD with named exports)
+    const AIImageEdit = window.AIImageEdit?.default || window.AIImageEdit;
+
+    // Fallback: if init is on AIImageEdit directly (not nested)
+    const lib = AIImageEdit?.init ? AIImageEdit : AIImageEdit?.default;
+
+    // Get config from inputs
+    function getConfig() {
+      return {
+        apiKey: document.getElementById('apiKey').value,
+        baseUrl: document.getElementById('baseUrl').value,
+        modelName: document.getElementById('modelName').value,
+        useGeminiNative: document.getElementById('apiFormat').value === 'gemini',
+      };
+    }
+
+    // Track the currently edited image element
+    let currentEditingImage = null;
+
+    // Handle edit result - replace original image with edited result
+    function handleComplete(result) {
+      console.log('Edit complete:', result);
+
+      // Replace the original image with the edited result
+      if (currentEditingImage) {
+        currentEditingImage.src = result.dataUrl;
+        currentEditingImage = null;
+      }
+
+      // Show result section
+      const resultSection = document.getElementById('result-section');
+      const resultImage = document.getElementById('result-image');
+      const resultInfo = document.getElementById('result-info');
+
+      resultSection.classList.add('show');
+      resultImage.src = result.dataUrl;
+      resultInfo.textContent = `Size: ${result.width}x${result.height} | Format: ${result.format}`;
+    }
+
+    // Initialize with hover enabled
+    // iframeSrc is auto-detected from the library location
+    lib.init({
+      // Optional: manually specify iframe path if auto-detection fails
+      // iframeSrc: '../dist/iframe/index.html',
+      hover: {
+        selector: 'img:not([data-ai-ignore])',
+        minWidth: 200,
+        minHeight: 150,
+        getConfig: (img) => {
+          // Track which image is being edited
+          currentEditingImage = img;
+          return {
+            ...getConfig(),
+            onComplete: handleComplete,
+            onClose: () => {
+              console.log('Editor closed');
+              currentEditingImage = null;
+            },
+            onError: (err) => alert('Error: ' + err.message),
+          };
+        },
+      },
+    });
+
+    // Setup manual edit button
+    document.getElementById('manual-edit-btn').addEventListener('click', () => {
+      const config = getConfig();
+      if (!config.apiKey) {
+        alert('Please enter an API key first');
+        return;
+      }
+
+      const img = document.getElementById('manual-image');
+      currentEditingImage = img;
+
+      lib.open({
+        image: img,
+        ...config,
+        onComplete: handleComplete,
+        onClose: () => {
+          console.log('Editor closed');
+          currentEditingImage = null;
+        },
+        onError: (err) => alert('Error: ' + err.message),
+      });
+    });
+  </script>
+</body>
+</html>

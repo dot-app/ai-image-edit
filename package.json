@@ -1,13 +1,47 @@
 {
-  "name": "nano-banana-app",
-  "private": true,
-  "version": "0.0.0",
+  "name": "ai-image-editor",
+  "version": "1.0.0",
+  "description": "AI-powered image editing library with hover-to-edit functionality",
   "type": "module",
+  "main": "./dist/ai-image-editor.umd.js",
+  "module": "./dist/ai-image-editor.es.mjs",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/ai-image-editor.es.mjs",
+      "require": "./dist/ai-image-editor.umd.js",
+      "types": "./dist/types/index.d.ts"
+    }
+  },
+  "unpkg": "./dist/ai-image-editor.umd.js",
+  "jsdelivr": "./dist/ai-image-editor.umd.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "vite",
+    "dev:demo": "vite -c vite.config.demo.js",
     "build": "vite build",
+    "build:iframe": "vite build -c vite.config.iframe.js && mv dist/iframe/iframe.html dist/iframe/index.html 2>/dev/null || move dist\\iframe\\iframe.html dist\\iframe\\index.html",
+    "build:lib": "npm run build:iframe && vite build -c vite.config.lib.js",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "prepare": "npm run build:lib",
+    "prepublishOnly": "npm run build:lib"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@imgly/background-removal": "^1.7.0",
@@ -15,8 +49,6 @@
     "fabric": "^7.0.0",
     "lucide-react": "^0.562.0",
     "onnxruntime-web": "^1.20.1",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
@@ -31,7 +63,24 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "postcss": "^8.5.6",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "tailwindcss": "^4.1.18",
     "vite": "^5.4.11"
-  }
+  },
+  "keywords": [
+    "ai",
+    "image-editing",
+    "fabric.js",
+    "react",
+    "web-component",
+    "image-generation",
+    "openai",
+    "gemini"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chunxiuxiamo/ai-image-edit.git"
+  },
+  "license": "MIT"
 }

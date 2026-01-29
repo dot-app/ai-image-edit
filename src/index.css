@@ -1,4 +1,6 @@
-@import "tailwindcss";
+/* Import only utilities, skip preflight/base reset to avoid global pollution */
+@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/utilities" layer(utilities);
 
 @theme {
   --color-ios-gray: #F2F2F7;
@@ -14,10 +16,4 @@
   --radius-ios-lg: 40px;
   --radius-ios-md: 28px;
   --radius-ios-sm: 12px;
-}
-
-@layer base {
-  body {
-    @apply bg-ios-gray text-slate-900 font-sans antialiased;
-  }
 }

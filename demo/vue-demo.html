@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Image Editor - Vue Demo</title>
+  <!-- Load Vue -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <!-- Load AI Image Editor (UMD - React bundled in, no CSS needed - isolated in iframe) -->
+  <script src="../dist/ai-image-editor.umd.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 40px;
+      background: #f5f5f7;
+      min-height: 100vh;
+    }
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 32px;
+      font-weight: 600;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 32px;
+    }
+    .config-section {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      margin-bottom: 32px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .config-section h2 {
+      margin: 0 0 16px 0;
+      font-size: 18px;
+    }
+    .config-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .config-row label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+    .config-row input,
+    .config-row select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      background: white;
+    }
+    .image-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 24px;
+    }
+    .image-card {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .image-card img {
+      width: 100%;
+      height: 200px;
+      object-fit: cover;
+      display: block;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .image-card img:hover {
+      opacity: 0.9;
+    }
+    .image-card .info {
+      padding: 16px;
+    }
+    .image-card .title {
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+    .image-card .desc {
+      color: #666;
+      font-size: 14px;
+    }
+    .edit-btn {
+      margin-top: 12px;
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .edit-btn:hover {
+      opacity: 0.9;
+    }
+    .edit-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .result-section {
+      margin-top: 32px;
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .result-section h2 {
+      margin: 0 0 16px 0;
+    }
+    .result-image {
+      max-width: 400px;
+      border-radius: 8px;
+    }
+    .result-info {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #666;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      background: #e0e7ff;
+      color: #4338ca;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-left: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <h1>AI Image Editor - Vue Demo <span class="badge">Vue 3</span></h1>
+    <p class="subtitle">Click "Edit with AI" button or hover over images to see the AI Edit button</p>
+    <p class="subtitle" style="color: #999; font-size: 12px;">Using iframe-based library from /dist (CSS isolated)</p>
+
+    <!-- API Configuration -->
+    <div class="config-section">
+      <h2>API Configuration</h2>
+      <div class="config-row">
+        <label>
+          API Key
+          <input type="password" v-model="config.apiKey" placeholder="Enter your API key">
+        </label>
+        <label>
+          Base URL
+          <input type="text" v-model="config.baseUrl" placeholder="API base URL">
+        </label>
+        <label>
+          Model Name
+          <input type="text" v-model="config.modelName" placeholder="Model name">
+        </label>
+        <label>
+          API Format
+          <select v-model="config.apiFormat">
+            <option value="gemini">Gemini Native</option>
+            <option value="openai">OpenAI Compatible</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <!-- Image Grid -->
+    <div class="image-grid">
+      <div class="image-card" v-for="(image, index) in images" :key="index">
+        <img
+          :src="image.src"
+          :alt="image.title"
+          :ref="el => imageRefs[index] = el"
+          crossorigin="anonymous"
+          :data-ai-ignore="image.manualOnly ? '' : null"
+        >
+        <div class="info">
+          <div class="title">{{ image.title }}</div>
+          <div class="desc">{{ image.desc }}</div>
+          <button
+            class="edit-btn"
+            @click="openEditor(index)"
+            :disabled="!config.apiKey"
+          >
+            Edit with AI
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Result Section -->
+    <div class="result-section" v-if="lastResult">
+      <h2>Last Edit Result</h2>
+      <img class="result-image" :src="lastResult.dataUrl" alt="Result">
+      <div class="result-info">
+        Size: {{ lastResult.width }}x{{ lastResult.height }} | Format: {{ lastResult.format }}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Get the library from global scope (UMD with named exports)
+    const _AIImageEdit = window.AIImageEdit?.default || window.AIImageEdit;
+    const AIImageEdit = _AIImageEdit?.init ? _AIImageEdit : _AIImageEdit?.default;
+
+    const { createApp, ref, reactive, onMounted, onUnmounted } = Vue;
+
+    createApp({
+      setup() {
+        // API Configuration (reactive)
+        const config = reactive({
+          apiKey: '',
+          baseUrl: 'https://yunwu.ai',
+          modelName: 'gemini-2.5-flash-image',
+          apiFormat: 'gemini',
+        });
+
+        // Image list
+        const images = ref([
+          {
+            src: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600',
+            title: 'Mountain Landscape',
+            desc: 'Hover to see AI Edit button',
+            manualOnly: false,
+          },
+          {
+            src: 'https://images.unsplash.com/photo-1682687220742-aba13b6e50ba?w=600',
+            title: 'Ocean Sunset',
+            desc: 'Hover to see AI Edit button',
+            manualOnly: false,
+          },
+          {
+            src: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=600',
+            title: 'Starry Night (Manual Only)',
+            desc: 'Has data-ai-ignore attribute',
+            manualOnly: true,
+          },
+          {
+            src: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=600',
+            title: 'Forest Path',
+            desc: 'Click button to edit',
+            manualOnly: true,
+          },
+        ]);
+
+        // Image element refs
+        const imageRefs = ref([]);
+
+        // Track currently editing image index
+        let currentEditingIndex = null;
+
+        // Last edit result
+        const lastResult = ref(null);
+
+        // Handle edit completion
+        const handleComplete = (result) => {
+          console.log('Edit complete:', result);
+
+          // Replace original image with edited result
+          if (currentEditingIndex !== null && images.value[currentEditingIndex]) {
+            images.value[currentEditingIndex].src = result.dataUrl;
+          }
+
+          // Store result for display
+          lastResult.value = result;
+          currentEditingIndex = null;
+        };
+
+        // Handle editor close
+        const handleClose = () => {
+          console.log('Editor closed');
+          currentEditingIndex = null;
+        };
+
+        // Handle error
+        const handleError = (err) => {
+          alert('Error: ' + err.message);
+        };
+
+        // Open editor for specific image
+        const openEditor = (index) => {
+          if (!config.apiKey) {
+            alert('Please enter an API key first');
+            return;
+          }
+
+          currentEditingIndex = index;
+          const imgEl = imageRefs.value[index];
+
+          AIImageEdit.open({
+            image: imgEl,
+            apiKey: config.apiKey,
+            baseUrl: config.baseUrl,
+            modelName: config.modelName,
+            useGeminiNative: config.apiFormat === 'gemini',
+            onComplete: handleComplete,
+            onClose: handleClose,
+            onError: handleError,
+          });
+        };
+
+        // Initialize on mount
+        onMounted(() => {
+          // Initialize with hover enabled
+          // iframeSrc is auto-detected from the library location
+          AIImageEdit.init({
+            // Optional: manually specify iframe path if auto-detection fails
+            // iframeSrc: '../dist/iframe/index.html',
+            hover: {
+              selector: 'img:not([data-ai-ignore])',
+              minWidth: 200,
+              minHeight: 150,
+              getConfig: (img) => {
+                // Find the index of clicked image
+                const index = imageRefs.value.findIndex(ref => ref === img);
+                if (index !== -1) {
+                  currentEditingIndex = index;
+                }
+
+                return {
+                  apiKey: config.apiKey,
+                  baseUrl: config.baseUrl,
+                  modelName: config.modelName,
+                  useGeminiNative: config.apiFormat === 'gemini',
+                  onComplete: handleComplete,
+                  onClose: handleClose,
+                  onError: handleError,
+                };
+              },
+            },
+          });
+        });
+
+        // Cleanup on unmount
+        onUnmounted(() => {
+          AIImageEdit.destroy();
+        });
+
+        return {
+          config,
+          images,
+          imageRefs,
+          lastResult,
+          openEditor,
+        };
+      },
+    }).mount('#app');
+  </script>
+</body>
+</html>
